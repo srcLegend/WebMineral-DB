@@ -83,13 +83,12 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 
 			#	Find and extract mineral name
 			temp = driver.find_element(By.XPATH, xpath(1)).text
-
 			m = re.search(patterns['name'], temp)
-			temp = m.group(2).replace('(', '').replace(')', '')
-			if re.search(patterns['exclude'], temp):
-				tempSkipped.append(link)
-				continue
 			try:
+				temp = m.group(2).replace('(', '').replace(')', '')
+				if re.search(patterns['exclude'], temp):
+					tempSkipped.append(link)
+					continue
 				mineral = Mineral(name = temp)
 			except AttributeError:
 				tempSkipped.append(link)
