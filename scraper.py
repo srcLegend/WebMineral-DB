@@ -284,7 +284,7 @@ if (__name__ == "__main__"):
 	lock = Lock()
 	minerals, skipped = [], []
 	generateHeaders(headers = headers, periodicTable = "data/PeriodicTable.csv")
-	generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 3053, lastMineral = 3060)
+	generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
 
 	#	Removes duplicates and returns a new list
 	minerals = list(set(minerals))
