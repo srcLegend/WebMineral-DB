@@ -30,12 +30,11 @@ def generateHeaders(headers, periodicTable):
 	""" Appends and returns a given headers list with all elements from the periodic table\n
 		Requires a periodic table in CSV format, where headers are in row 1\r
 		Columns must be: Atomic Number, Name, Symbol, Mass, etc..."""
-	with open(periodicTable, 'r', newline = '') as file:
+	with open(periodicTable, 'r') as file:
 		rows = csv.reader(file)
 		whitespace = re.compile(r'\s*')
 		for row in rows:
-			if (rows.line_num == 1):
-				continue
+			if (rows.line_num == 1): continue
 			headers.append(re.sub(whitespace, '', row[2]))
 
 def generateMineral(links, baselinks, patterns, titles, settings, xpath):
@@ -162,8 +161,7 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 				except NoSuchElementException:
 					break
 
-				if all(v == True for v in done.values()):
-					break
+				if all(v == True for v in done.values()): break
 
 			tempMinerals.append(mineral)
 			# Lock printing for proper console output
@@ -213,8 +211,7 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 
 			links, tempSkipped = [], []
 			for i in count(firstMineral):
-				if ((lastMineral != None) and (i > lastMineral)):
-					break
+				if ((lastMineral != None) and (i > lastMineral)): break
 				# Try to get mineral link, skip otherwise
 				try:
 					temp = driver.find_element(By.CSS_SELECTOR, cssSelector(i)).get_attribute('href')
@@ -258,11 +255,17 @@ if (__name__ == "__main__"):
 	# Whether to regenerate minerals database or not
 	generate = True
 	# Whether to overwrite certain minerals with custom values or not
-	custom = False
+	custom = True
+
+	# Data files
+	periodicTable = "data/PeriodicTable.csv"
+	currentMinerals = "data/CurrentMinerals.csv"
+	mineralsDatabase = "data/MineralsDatabase.csv"
+	customMinerals = "data/CustomMinerals.csv"
 
 	# CSV initial headers
 	headers = ["Mineral", "Density", "Hardness"]
-	generateHeaders(headers, "data/Periodic Table.csv")
+	generateHeaders(headers, periodicTable)
 
 	if generate:
 		# WebDriver settings
@@ -272,7 +275,7 @@ if (__name__ == "__main__"):
 					'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
 					'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
 					'timeout' : 15,
-					'threads' : 8}
+					'threads' : 6}
 
 		baselink = "http://webmineral.com"
 		baselinks = {'base'	   : baselink,
@@ -310,23 +313,24 @@ if (__name__ == "__main__"):
 		minerals, skipped = [], []
 		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
 
-		# Removes duplicates and returns a new list
+		# Removes duplicates and returns a new sorted list
 		minerals = list(set(minerals))
 		minerals.sort(key = operator.attrgetter('name'))
 
 		# Writes everything to a CSV file
-		with open("data/Minerals Database.csv", 'w', newline = '') as file:
+		with open(mineralsDatabase, 'w', newline = '') as file:
 			rows = csv.DictWriter(file, fieldnames = headers)
 			rows.writeheader()
 			for mineral in minerals:
-				tempdict = {'Mineral':	mineral.name,
-							'Density':	mineral.density,
-							'Hardness': mineral.hardness}
+				tempdict = {headers[0]:	mineral.name,
+							headers[1]:	mineral.density,
+							headers[2]: mineral.hardness}
 				tempdict.update(mineral.elements)
 				try: del tempdict['RE']
 				except KeyError: pass
 				rows.writerow(tempdict)
 
+		# Print skipped links
 		if skipped:
 			if (len(skipped) == 1):
 				print(f"\"{skipped[0]}\" was skipped")
@@ -338,8 +342,49 @@ if (__name__ == "__main__"):
 	if custom:
 		if not generate:
 			minerals = []
-			with open("data/Minerals Database.csv", 'r') as file:
+			with open(mineralsDatabase, 'r') as file:
 				rows = csv.DictReader(file, fieldnames = headers)
 				for row in rows:
-					if (rows.line_num == 1):
-						continue
+					if (rows.line_num == 1): continue
+
+					minerals.append(Mineral(name = row[headers[0]]))
+					if (row[headers[1]] != ''):
+						minerals[-1].density = row[headers[1]]
+					if (row[headers[2]] != ''):
+						minerals[-1].hardness = row[headers[2]]
+
+					for header in headers[3:]:
+						if (row[header] != ''):
+							minerals[-1].elements[header] = row[header]
+
+		with open(customMinerals, 'r') as file:
+			rows = rows = csv.DictReader(file, fieldnames = headers)
+			for row in rows:
+				if (rows.line_num == 1): continue
+
+				# Check if a custom mineral is already listed. Delete it if so
+				mIndex = next((mIndex for (mIndex, mineral) in enumerate(minerals) if (mineral.name == row[headers[0]])), None)
+				if mIndex: del minerals[mIndex]
+
+				minerals.append(Mineral(name = row[headers[0]]))
+				if (row[headers[1]] != ''):
+					minerals[-1].density = row[headers[1]]
+				if (row[headers[2]] != ''):
+					minerals[-1].hardness = row[headers[2]]
+
+				for header in headers[3:]:
+					if (row[header] != ''):
+						minerals[-1].elements[header] = row[header]
+
+		minerals.sort(key = operator.attrgetter('name'))
+
+		# Writes everything to a new CSV file
+		with open(currentMinerals, 'w', newline = '') as file:
+			rows = csv.DictWriter(file, fieldnames = headers)
+			rows.writeheader()
+			for mineral in minerals:
+				tempdict = {headers[0]:	mineral.name,
+							headers[1]:	mineral.density,
+							headers[2]: mineral.hardness}
+				tempdict.update(mineral.elements)
+				rows.writerow(tempdict)
