@@ -30,12 +30,13 @@ def generateHeaders(headers, periodicTable):
 	""" Appends and returns a given headers list with all elements from the periodic table\n
 		Requires a periodic table in CSV format, where headers are in row 1\r
 		Columns must be: Atomic Number, Name, Symbol, Mass, etc..."""
-	with open(periodicTable) as file:
+	with open(periodicTable, 'r', newline = '') as file:
 		rows = csv.reader(file)
+		whitespace = re.compile(r'\s*')
 		for row in rows:
 			if (rows.line_num == 1):
 				continue
-			headers.append(row[2])
+			headers.append(re.sub(whitespace, '', row[2]))
 
 def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 	"""Generates mineral objects. Seems to be thread-safe so far\n
@@ -62,7 +63,7 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 		options.page_load_strategy = 'eager'
 		services = webdriver.firefox.service.Service(executable_path = settings['firefox'])
 
-	global lock
+	global locks
 	with (webdriver.Chrome(options = options, service = services) if (settings['browser'] == "chrome") else
 		  webdriver.Edge(options = options, service = services) if (settings['browser'] == "edge") else
 		  webdriver.Firefox(options = options, service = services) if (settings['browser'] == "firefox") else None) as driver:
@@ -165,11 +166,12 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 					break
 
 			tempMinerals.append(mineral)
-			with lock:
+			# Lock printing for proper console output
+			with locks['print']:
 				print(f"Done downloading {mineral.name} in {time() - startTime:.2f} seconds")
 
 	# Lock variables to avoid race conditions, then append them
-	with lock:
+	with locks['append']:
 		global minerals
 		global skipped
 		minerals = [*minerals, *tempMinerals]
@@ -209,8 +211,7 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 			wait = WebDriverWait(driver, settings['timeout'])
 			wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, cssSelector(firstMineral))))
 
-			global skipped
-			links = []
+			links, tempSkipped = [], []
 			for i in count(firstMineral):
 				if ((lastMineral != None) and (i > lastMineral)):
 					break
@@ -220,13 +221,17 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 					if (".shtml" in temp):
 						links.append(temp)
 					else:
-						skipped.append(temp)
+						tempSkipped.append(temp)
 				except NoSuchElementException:
 					break
 				print(f"Acquiring links. Currently at link #{i - firstMineral}")
 
 	except AttributeError:
 		print(f"Chosen browser ({settings['browser']}) is not supported")
+
+	# Append skipped links
+	global skipped
+	skipped = [*skipped, *tempSkipped]
 
 	# Separate links into batches for threading, then start threads
 	maxLinks = len(links)//settings['threads']
@@ -251,58 +256,58 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 
 if (__name__ == "__main__"):
 	# Whether to regenerate minerals database or not
-	generate = False
-
-	# WebDriver settings
-	settings = {
-		'headless': True,
-		'browser' : "chrome", # Set to "edge", "chrome" or "firefox"
-		'chrome'  : "bin/chromedriver.exe", # Get from "https://chromedriver.chromium.org/"
-		'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
-		'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
-		'timeout' : 15,
-		'threads' : 8}
-
-	baselink = "http://webmineral.com"
-	baselinks = {'base'	   : baselink,
-				 'data'	   : baselink + "/data/index.html",
-				 'elements': baselink + "/help/Composition.shtml",
-				 'density' : baselink + "/help/Density.shtml",
-				 'hardness': baselink + "/help/Hardness.shtml"}
-
-	titles = {'elements': "composition",
-			  'density' : "density",
-			  'hardness': "hardness"}
-
-	# Mineral data page xpath
-	xpath = lambda i: f"//*[@id=\"header\"]/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
-	if (settings['browser'] == "firefox"):
-		xpath = lambda i: f"/html/body/table/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
-
-	# Minerals list page CSS Selector
-	cssSelector = lambda i: f"body > table > tbody > tr:nth-child({i}) > td:nth-child(2) > a"
-	if (settings['browser'] == "firefox"):
-		cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
-
-	# RegEx patterns. Check with "https://regexr.com/"
-	patterns = {'name'			   : "(General )(.*)( Information)",	# Match group 2
-				'exclude'		   : "(IMA\d+-?\d*)",					# Test group 1
-				'element'		   : "(\d+\.?\d*)\s*%\s*(\w+).*",		# Match group 1 for percentage, group 2 for element
-				'density'		   : "(\d+\.?\d*)$",					# Match group 1
-				'hardness'		   : "(\d+\.?\d*-\d+\.?\d*|\d+\.?\d*)", # Match group 1
-				'hardnessSeparator': "-",	   # In case of a hardness range value, takes the average as the hardness
-				'elementsSeparator': "______"} # Signals end of element values
+	generate = True
+	# Whether to overwrite certain minerals with custom values or not
+	custom = False
 
 	# CSV initial headers
-	headers = ["Mineral",
-			   "Density",
-			   "Hardness"]
+	headers = ["Mineral", "Density", "Hardness"]
+	generateHeaders(headers, "data/Periodic Table.csv")
 
-	# Lock object for threading
-	lock = Lock()
-	minerals, skipped = [], []
-	generateHeaders(headers = headers, periodicTable = "data/Periodic Table.csv")
 	if generate:
+		# WebDriver settings
+		settings = {'headless': True,
+					'browser' : "chrome", # Set to "edge", "chrome" or "firefox"
+					'chrome'  : "bin/chromedriver.exe", # Get from "https://chromedriver.chromium.org/"
+					'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
+					'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
+					'timeout' : 15,
+					'threads' : 8}
+
+		baselink = "http://webmineral.com"
+		baselinks = {'base'	   : baselink,
+					 'data'	   : baselink + "/data/index.html",
+					 'elements': baselink + "/help/Composition.shtml",
+					 'density' : baselink + "/help/Density.shtml",
+					 'hardness': baselink + "/help/Hardness.shtml"}
+
+		titles = {'elements': "composition",
+				  'density' : "density",
+				  'hardness': "hardness"}
+
+		# Mineral data page xpath
+		xpath = lambda i: f"//*[@id=\"header\"]/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
+		if (settings['browser'] == "firefox"):
+			xpath = lambda i: f"/html/body/table/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
+
+		# Minerals list page CSS Selector
+		cssSelector = lambda i: f"body > table > tbody > tr:nth-child({i}) > td:nth-child(2) > a"
+		if (settings['browser'] == "firefox"):
+			cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
+
+		# RegEx patterns. Check with "https://regexr.com/"
+		patterns = {'name'			   : "(General )(.*)( Information)",	# Match group 2
+					'exclude'		   : "(IMA\d+-?\d*)",					# Test group 1
+					'element'		   : "(\d+\.?\d*)\s*%\s*(\w+).*",		# Match group 1 for percentage, group 2 for element
+					'density'		   : "(\d+\.?\d*)$",					# Match group 1
+					'hardness'		   : "(\d+\.?\d*-\d+\.?\d*|\d+\.?\d*)", # Match group 1
+					'hardnessSeparator': "-",	   # In case of a hardness range value, takes the average as the hardness
+					'elementsSeparator': "______"} # Signals end of element values
+
+		# Lock object for threading
+		locks = {'append': Lock(),
+				 'print' : Lock()}
+		minerals, skipped = [], []
 		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
 
 		# Removes duplicates and returns a new list
@@ -329,3 +334,12 @@ if (__name__ == "__main__"):
 				print("These were skipped :")
 				for link in skipped:
 					print(f"\t \"{link}\"")
+
+	if custom:
+		if not generate:
+			minerals = []
+			with open("data/Minerals Database.csv", 'r') as file:
+				rows = csv.DictReader(file, fieldnames = headers)
+				for row in rows:
+					if (rows.line_num == 1):
+						continue
