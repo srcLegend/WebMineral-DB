@@ -6,7 +6,7 @@ from itertools import count
 from threading import Thread, Lock
 from time import time
 
-#	Requires Selenium package version >= 4.0.0.B4
+# Requires Selenium package version >= 4.0.0.B4
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -20,7 +20,7 @@ class Mineral:
 	hardness: float = None
 	elements: dict = field(default_factory = dict)
 
-	#	Functions to check for duplicates (based on names)
+	# Functions to check for duplicates (based on names)
 	def __eq__(self, other):
 		return (self.name == other.name)
 	def __hash__(self):
@@ -83,13 +83,13 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 					'density':  False,
 					'hardness': False}
 
-			#	Find and try to extract mineral name, skip link on AttributeError
+			# Find and try to extract mineral name, skip link on AttributeError
 			temp = driver.find_element(By.XPATH, xpath(1)).text
 			m = re.search(patterns['name'], temp)
 			try:
 				# Check that the name doesn't contain unwanted characters
 				temp = m.group(2).replace('(', '').replace(')', '')
-				#	Check that the name isn't excluded, skip link if it is
+				# Check that the name isn't excluded, skip link if it is
 				if re.search(patterns['exclude'], temp):
 					tempSkipped.append(link)
 					continue
@@ -98,11 +98,11 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 				tempSkipped.append(link)
 				continue
 
-			#	Start looking for and extract mineral data
+			# Start looking for and extract mineral data
 			for i in count(2):
 				try:
 					temp = driver.find_element(By.XPATH, xpath(i)).text
-					#	Check for elements, and keep looking until we hit a separator
+					# Check for elements, and keep looking until we hit a separator
 					if not done['elements']:
 						if ((not found['elements']) and (titles['elements'] in temp.lower())):
 							try:
@@ -127,7 +127,7 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 							finally:
 								continue
 
-					#	Check for density
+					# Check for density
 					if ((not done['density']) and (titles['density'] in temp.lower())):
 						try:
 							temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
@@ -140,7 +140,7 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 						finally:
 							continue
 
-					#	Check for hardness
+					# Check for hardness
 					if ((not done['hardness']) and (titles['hardness'] in temp.lower())):
 						try:
 							temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
@@ -168,7 +168,7 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 			with lock:
 				print(f"Done downloading {mineral.name} in {time() - startTime:.2f} seconds")
 
-	#	Lock variables to avoid race conditions, then append them
+	# Lock variables to avoid race conditions, then append them
 	with lock:
 		global minerals
 		global skipped
@@ -214,7 +214,7 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 			for i in count(firstMineral):
 				if ((lastMineral != None) and (i > lastMineral)):
 					break
-				#	Try to get mineral link, skip otherwise
+				# Try to get mineral link, skip otherwise
 				try:
 					temp = driver.find_element(By.CSS_SELECTOR, cssSelector(i)).get_attribute('href')
 					if (".shtml" in temp):
@@ -228,7 +228,7 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 	except AttributeError:
 		print(f"Chosen browser ({settings['browser']}) is not supported")
 
-	#	Separate links into batches for threading, then start threads
+	# Separate links into batches for threading, then start threads
 	maxLinks = len(links)//settings['threads']
 	remainingLinks = len(links)%settings['threads']
 	slicers, threads = [0, 0], []
@@ -245,15 +245,15 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 								  args = (links[slicers[0]:], baselinks, patterns, titles, settings, xpath)))
 		threads[-1].start()
 
-	#	Wait for thread completion
+	# Wait for thread completion
 	for thread in threads:
 		thread.join()
 
 if (__name__ == "__main__"):
-	#	Whether to regenerate minerals database or not
+	# Whether to regenerate minerals database or not
 	generate = False
 
-	#	WebDriver settings
+	# WebDriver settings
 	settings = {
 		'headless': True,
 		'browser' : "chrome", # Set to "edge", "chrome" or "firefox"
@@ -274,17 +274,17 @@ if (__name__ == "__main__"):
 			  'density' : "density",
 			  'hardness': "hardness"}
 
-	#	Mineral data page xpath
+	# Mineral data page xpath
 	xpath = lambda i: f"//*[@id=\"header\"]/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
 	if (settings['browser'] == "firefox"):
 		xpath = lambda i: f"/html/body/table/tbody/tr/td/center/table[3]/tbody/tr[{i}]"
 
-	#	Minerals list page CSS Selector
+	# Minerals list page CSS Selector
 	cssSelector = lambda i: f"body > table > tbody > tr:nth-child({i}) > td:nth-child(2) > a"
 	if (settings['browser'] == "firefox"):
 		cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
 
-	#	RegEx patterns. Check with "https://regexr.com/"
+	# RegEx patterns. Check with "https://regexr.com/"
 	patterns = {'name'			   : "(General )(.*)( Information)",	# Match group 2
 				'exclude'		   : "(IMA\d+-?\d*)",					# Test group 1
 				'element'		   : "(\d+\.?\d*)\s*%\s*(\w+).*",		# Match group 1 for percentage, group 2 for element
@@ -293,23 +293,23 @@ if (__name__ == "__main__"):
 				'hardnessSeparator': "-",	   # In case of a hardness range value, takes the average as the hardness
 				'elementsSeparator': "______"} # Signals end of element values
 
-	#	CSV initial headers
+	# CSV initial headers
 	headers = ["Mineral",
 			   "Density",
 			   "Hardness"]
 
-	#	Lock object for threading
+	# Lock object for threading
 	lock = Lock()
 	minerals, skipped = [], []
 	generateHeaders(headers = headers, periodicTable = "data/Periodic Table.csv")
 	if generate:
 		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
 
-		#	Removes duplicates and returns a new list
+		# Removes duplicates and returns a new list
 		minerals = list(set(minerals))
 		minerals.sort(key = operator.attrgetter('name'))
 
-		#	Writes everything to a CSV file
+		# Writes everything to a CSV file
 		with open("data/Minerals Database.csv", 'w', newline = '') as file:
 			rows = csv.DictWriter(file, fieldnames = headers)
 			rows.writeheader()
