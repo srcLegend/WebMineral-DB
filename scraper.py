@@ -253,7 +253,7 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 
 if (__name__ == "__main__"):
 	# Whether to regenerate minerals database or not
-	generate = True
+	generate = False
 	# Whether to overwrite certain minerals with custom values or not
 	custom = True
 
@@ -387,4 +387,6 @@ if (__name__ == "__main__"):
 							headers[1]:	mineral.density,
 							headers[2]: mineral.hardness}
 				tempdict.update(mineral.elements)
+				try: del tempdict['RE']
+				except KeyError: pass
 				rows.writerow(tempdict)
