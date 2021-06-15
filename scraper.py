@@ -1,6 +1,7 @@
 import csv
 import operator
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from itertools import count
 from threading import Thread, Lock
@@ -253,9 +254,9 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 
 if (__name__ == "__main__"):
 	# Whether to regenerate minerals database or not
-	generate = False
+	generate = True
 	# Whether to overwrite certain minerals with custom values or not
-	custom = True
+	custom = False
 
 	# Data files
 	periodicTable = "data/PeriodicTable.csv"
@@ -270,12 +271,12 @@ if (__name__ == "__main__"):
 	if generate:
 		# WebDriver settings
 		settings = {'headless': True,
-					'browser' : "chrome", # Set to "edge", "chrome" or "firefox"
+					'browser' : "edge", # Set to "edge", "chrome" or "firefox"
 					'chrome'  : "bin/chromedriver.exe", # Get from "https://chromedriver.chromium.org/"
 					'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
 					'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
-					'timeout' : 15,
-					'threads' : 6}
+					'timeout' : 30,
+					'threads' : 8}
 
 		baselink = "http://webmineral.com"
 		baselinks = {'base'	   : baselink,
@@ -313,6 +314,12 @@ if (__name__ == "__main__"):
 		minerals, skipped = [], []
 		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
 
+		# Keep dict of duplicates
+		duplicates = defaultdict(list)
+		for m in minerals:
+			duplicates[m.name].append(m)
+		duplicates = {k: v for k, v in duplicates.items() if len(v) > 1}
+
 		# Removes duplicates and returns a new sorted list
 		minerals = list(set(minerals))
 		minerals.sort(key = operator.attrgetter('name'))
@@ -337,7 +344,14 @@ if (__name__ == "__main__"):
 			else:
 				print("These were skipped :")
 				for link in skipped:
-					print(f"\t \"{link}\"")
+					print(f"\t {link}")
+
+		# Print duplicate minerals
+		if duplicates:
+			for duplicate in duplicates:
+				print(f"Found duplicates of \"{duplicate}\", with these properties :")
+				for d in duplicates[duplicate]:
+					print(f"\tDensity {d.density}, Hardness {d.hardness}, Elements {d.elements}")
 
 	if custom:
 		if not generate:
