@@ -204,73 +204,52 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 		services = webdriver.firefox.service.Service(executable_path = settings['firefox'])
 
 	global locks
-	tempMinerals, tempSkipped = [], []
+	temp_minerals, temp_skipped = [], []
 	for link in links:
-		startTime = time()
+		start_time = time()
 
 		r = requests.get(link)
 		s = BeautifulSoup(r.content, 'html.parser')
 
-		# Find and try to extract mineral name, skip link on AttributeError
+		# Find and try to extract mineral name
 		try:
 			temp = s.select("h3 > b")[0].contents[0]
-		except IndexError:
-			if ("redirect" in s.contents[0].text.lower()):
-				temp = s.contents[0].contents[1].contents[3].attrs['content'].split(';url=')[1]
-				links.append(temp)
-			else:
-				tempSkipped.append(link)
-			continue
 
-		m = re.search(patterns['name'], temp)
-		try:
 			# Check that the name doesn't contain unwanted characters
+			# Skip if it fits an exclude pattern
+			m = re.search(patterns['name'], temp)
 			temp = m.group(1).replace('(', '').replace(')', '').strip()
-			# Check that the name isn't excluded, skip link if it is
 			if re.search(patterns['exclude'], temp):
-				tempSkipped.append(link)
+				temp_skipped.append(link)
 			else:
 				mineral = Mineral(name = temp)
+		except IndexError:
+			if ("redirect" in s.contents[0].text.lower()):
+				temp = s.contents[0].contents[1].contents[3].attrs['content']
+				m = re.search("(http.*)", temp)
+				links.append(m.group(1))
+			else:
+				temp_skipped.append(link)
+			continue
 		except AttributeError:
-			tempSkipped.append(link)
-
-		tempMinerals.append(mineral)
-		continue
+			temp_skipped.append(link)
+			continue
 
 		# Check for density
-		aTag = s.select("a[href*=\"../help/Density.shtml\"]")
-		if aTag:
+		if (temp := s.select("a[href*=\"../help/Density.shtml\"]")):
+			temp = list(temp[0].parents)
+			temp = list(temp[0].parent)
+			temp = temp[3].contents[0]
 			try:
-				tdTag = list(aTag[0].parents)
-				trTag = list(tdTag[0].parent)
-				temp = trTag[3].contents[0]
-				try:
-					mineral = Mineral(density = float(temp))
-				except ValueError:
-					m = re.search(patterns['density'], temp)
-					mineral = Mineral(density = float(m.group(1)))
-					# mineral.density = float(m.group(1))
-			except:
-				raise
+				mineral.density = float(temp)
+			except ValueError:
+				m = re.search(patterns['density'], temp)
+				mineral.density = float(m.group(1))
 
-
-		tempMinerals.append(mineral)
+		temp_minerals.append(mineral)
+		if (link == links[-1]):
+			break
 		continue
-
-		# Find and try to extract mineral name, skip link on AttributeError
-		temp = driver.find_element(By.XPATH, xpath(1)).text
-		m = re.search(patterns['name'], temp)
-		try:
-			# Check that the name doesn't contain unwanted characters
-			temp = m.group(2).replace('(', '').replace(')', '')
-			# Check that the name isn't excluded, skip link if it is
-			if re.search(patterns['exclude'], temp):
-				tempSkipped.append(link)
-				continue
-			mineral = Mineral(name = temp)
-		except AttributeError:
-			tempSkipped.append(link)
-			continue
 
 		# Start looking for and extract mineral data
 		for i in count(2):
@@ -346,8 +325,8 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 	with locks['append']:
 		global minerals
 		global skipped
-		minerals = [*minerals, *tempMinerals]
-		skipped = [*skipped, *tempSkipped]
+		minerals = [*minerals, *temp_minerals]
+		skipped = [*skipped, *temp_skipped]
 
 def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral, lastMineral = None):
 	"""Gathers links of all available minerals, then splits them into batches for threading\n
