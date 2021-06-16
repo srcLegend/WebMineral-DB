@@ -7,6 +7,8 @@ from itertools import count
 from threading import Thread, Lock
 from time import time
 
+import requests
+from bs4 import BeautifulSoup
 # Requires Selenium package version >= 4.0.0.B4
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -176,6 +178,177 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 		minerals = [*minerals, *tempMinerals]
 		skipped = [*skipped, *tempSkipped]
 
+def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
+	"""Generates mineral objects. Seems to be thread-safe so far\n
+	   Needs list/dictionaries of links, dictionaries of search patterns, titles, WebDriver settings,\\
+		along with values of CSS Selector of mineral list page, XPath of mineral data page,\\
+		first mineral XPath ID and, optionally, a last mineral XPath ID"""
+	if (settings['browser'] == "chrome"):
+		options = webdriver.ChromeOptions()
+		options.add_experimental_option('excludeSwitches', ['enable-logging'])
+		options.headless = settings['headless']
+		options.page_load_strategy = 'eager'
+		services = webdriver.chrome.service.Service(executable_path = settings['chrome'])
+	elif (settings['browser'] == "edge"):
+		options = webdriver.EdgeOptions()
+		options.use_chromium = True
+		options.add_argument("log-level=3")
+		options.headless = settings['headless']
+		options.page_load_strategy = 'eager'
+		services = webdriver.edge.service.Service(executable_path = settings['edge'])
+	elif (settings['browser'] == "firefox"):
+		options = webdriver.FirefoxOptions()
+		options.add_argument("log-level=3")
+		options.headless = settings['headless']
+		options.page_load_strategy = 'eager'
+		services = webdriver.firefox.service.Service(executable_path = settings['firefox'])
+
+	global locks
+	tempMinerals, tempSkipped = [], []
+	for link in links:
+		startTime = time()
+
+		r = requests.get(link)
+		s = BeautifulSoup(r.content, 'html.parser')
+
+		# Find and try to extract mineral name, skip link on AttributeError
+		try:
+			temp = s.select("h3 > b")[0].contents[0]
+		except IndexError:
+			if ("redirect" in s.contents[0].text.lower()):
+				temp = s.contents[0].contents[1].contents[3].attrs['content'].split(';url=')[1]
+				links.append(temp)
+			else:
+				tempSkipped.append(link)
+			continue
+
+		m = re.search(patterns['name'], temp)
+		try:
+			# Check that the name doesn't contain unwanted characters
+			temp = m.group(1).replace('(', '').replace(')', '').strip()
+			# Check that the name isn't excluded, skip link if it is
+			if re.search(patterns['exclude'], temp):
+				tempSkipped.append(link)
+			else:
+				mineral = Mineral(name = temp)
+		except AttributeError:
+			tempSkipped.append(link)
+
+		tempMinerals.append(mineral)
+		continue
+
+		# Check for density
+		aTag = s.select("a[href*=\"../help/Density.shtml\"]")
+		if aTag:
+			try:
+				tdTag = list(aTag[0].parents)
+				trTag = list(tdTag[0].parent)
+				temp = trTag[3].contents[0]
+				try:
+					mineral = Mineral(density = float(temp))
+				except ValueError:
+					m = re.search(patterns['density'], temp)
+					mineral = Mineral(density = float(m.group(1)))
+					# mineral.density = float(m.group(1))
+			except:
+				raise
+
+
+		tempMinerals.append(mineral)
+		continue
+
+		# Find and try to extract mineral name, skip link on AttributeError
+		temp = driver.find_element(By.XPATH, xpath(1)).text
+		m = re.search(patterns['name'], temp)
+		try:
+			# Check that the name doesn't contain unwanted characters
+			temp = m.group(2).replace('(', '').replace(')', '')
+			# Check that the name isn't excluded, skip link if it is
+			if re.search(patterns['exclude'], temp):
+				tempSkipped.append(link)
+				continue
+			mineral = Mineral(name = temp)
+		except AttributeError:
+			tempSkipped.append(link)
+			continue
+
+		# Start looking for and extract mineral data
+		for i in count(2):
+			try:
+				temp = driver.find_element(By.XPATH, xpath(i)).text
+				# Check for elements, and keep looking until we hit a separator
+				if not done['elements']:
+					if ((not found['elements']) and (titles['elements'] in temp.lower())):
+						try:
+							temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
+							if (temphref.get_attribute('href') == (baselinks['elements'])):
+								found['elements'] = True
+								continue
+						except NoSuchElementException:
+							continue
+					if found['elements']:
+						m = re.search(patterns['element'], temp)
+						try:
+							#	   [element,	percentage]
+							temp = [m.group(2), m.group(1)]
+							if (not temp[0] in mineral.elements):
+								mineral.elements[temp[0]] = float(temp[1])
+							else:
+								mineral.elements[temp[0]] += float(temp[1])
+						except AttributeError:
+							if (patterns['elementsSeparator'] in temp):
+								done['elements'] = True
+						finally:
+							continue
+
+				# Check for density
+				if ((not done['density']) and (titles['density'] in temp.lower())):
+					try:
+						temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
+						if (temphref.get_attribute('href') == (baselinks['density'])):
+							m = re.search(patterns['density'], temp)
+							mineral.density = float(m.group(1))
+							done['density'] = True
+					except NoSuchElementException:
+						pass
+					finally:
+						continue
+
+				# Check for hardness
+				if ((not done['hardness']) and (titles['hardness'] in temp.lower())):
+					try:
+						temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
+						if (temphref.get_attribute('href') == (baselinks['hardness'])):
+							m = re.search(patterns['hardness'], temp)
+							try:
+								temp = m.group(1)
+								mineral.hardness = float(temp)
+							except ValueError:
+								temp = list(map(float, temp.split(patterns['hardnessSeparator'])))
+								mineral.hardness = sum(temp)/len(temp)
+							finally:
+								done['hardness'] = True
+					except NoSuchElementException:
+						pass
+					finally:
+						continue
+			except NoSuchElementException:
+				break
+
+			if all(v == True for v in done.values()): break
+
+		tempMinerals.append(mineral)
+		# Lock printing for proper console output
+		with locks['print']:
+			print(f"Done downloading {mineral.name} in {time() - startTime:.2f} seconds")
+
+	# Lock variables to avoid race conditions, then append them
+	with locks['append']:
+		global minerals
+		global skipped
+		minerals = [*minerals, *tempMinerals]
+		skipped = [*skipped, *tempSkipped]
+
 def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral, lastMineral = None):
 	"""Gathers links of all available minerals, then splits them into batches for threading\n
 	   Needs dictionaries of links, search patterns, titles, WebDriver settings,\\
@@ -241,10 +414,10 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 			remainingLinks -= 1
 			slicers[1] += 1
 		if ((t + 1) < settings['threads']):
-			threads.append(Thread(target = generateMineral,
+			threads.append(Thread(target = generateMineralTest,
 								  args = (links[slicers[0]:slicers[1]], baselinks, patterns, titles, settings, xpath)))
 		else:
-			threads.append(Thread(target = generateMineral,
+			threads.append(Thread(target = generateMineralTest,
 								  args = (links[slicers[0]:], baselinks, patterns, titles, settings, xpath)))
 		threads[-1].start()
 
@@ -254,15 +427,15 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 
 if (__name__ == "__main__"):
 	# Whether to regenerate minerals database or not
-	generate = False
+	generate = True
 	# Whether to overwrite certain minerals with custom values or not
-	custom = True
+	custom = False
 
 	# Data files
-	periodicTable = "data/PeriodicTable.csv"
 	currentMinerals = "data/CurrentMinerals.csv"
-	mineralsDatabase = "data/MineralsDatabase.csv"
 	customMinerals = "data/CustomMinerals.csv"
+	periodicTable = "data/PeriodicTable.csv"
+	mineralsDatabase = "data/testing.csv" # "data/MineralsDatabase.csv"
 
 	# CSV initial headers
 	headers = ["Mineral", "Density", "Hardness"]
@@ -276,7 +449,7 @@ if (__name__ == "__main__"):
 					'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
 					'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
 					'timeout' : 30,
-					'threads' : 8}
+					'threads' : 1}
 
 		baselink = "http://webmineral.com"
 		baselinks = {'base'	   : baselink,
@@ -300,10 +473,10 @@ if (__name__ == "__main__"):
 			cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
 
 		# RegEx patterns. Check with "https://regexr.com/"
-		patterns = {'name'			   : "(General )(.*)( Information)",	# Match group 2
-					'exclude'		   : "(IMA\d+-?\d*)",					# Test group 1
+		patterns = {'name'			   : "General(.*)Information",			# Match group 1
+					'exclude'		   : "(IMA\S*)",						# Match group 1
 					'element'		   : "(\d+\.?\d*)\s*%\s*(\w+).*",		# Match group 1 for percentage, group 2 for element
-					'density'		   : "(\d+\.?\d*)$",					# Match group 1
+					'density'		   : "(\d+\.?\d*)\s*$",				# Match group 1
 					'hardness'		   : "(\d+\.?\d*-\d+\.?\d*|\d+\.?\d*)", # Match group 1
 					'hardnessSeparator': "-",	   # In case of a hardness range value, takes the average as the hardness
 					'elementsSeparator': "______"} # Signals end of element values
@@ -312,8 +485,8 @@ if (__name__ == "__main__"):
 		locks = {'append': Lock(),
 				 'print' : Lock()}
 		minerals, skipped = [], []
-		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4)
-
+		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4, lastMineral = 14)
+		exit()
 		# Keep track of duplicates
 		duplicates = defaultdict(list)
 		for m in minerals:
@@ -325,6 +498,8 @@ if (__name__ == "__main__"):
 		minerals.sort(key = operator.attrgetter('name'))
 
 		# Writes everything to a CSV file
+		# Additionally keep track of minerals containing rare earth elements
+		mineralsREE = []
 		with open(mineralsDatabase, 'w', newline = '') as file:
 			rows = csv.DictWriter(file, fieldnames = headers)
 			rows.writeheader()
@@ -333,9 +508,28 @@ if (__name__ == "__main__"):
 							headers[1]:	mineral.density,
 							headers[2]: mineral.hardness}
 				tempdict.update(mineral.elements)
-				try: del tempdict['RE']
-				except KeyError: pass
+				try:
+					del tempdict['RE']
+					mineralsREE.append(mineral)
+				except KeyError:
+					pass
 				rows.writerow(tempdict)
+
+		# Print duplicate minerals
+		if duplicates:
+			for duplicate in duplicates:
+				print(f"Found duplicates of \"{duplicate}\", with these properties :")
+				for d in duplicates[duplicate]:
+					print(f"\tDensity {d.density}, Hardness {d.hardness}, Elements {d.elements}")
+
+		# Print minerals containing rare earth elements
+		if mineralsREE:
+			if (len(mineralsREE) == 1):
+				print(f"\"{mineralsREE[0].name}\" contains rare earth elements")
+			else:
+				print("These minerals contain rare earth elements :")
+				for m in mineralsREE:
+					print(f"\t {m.name}")
 
 		# Print skipped links
 		if skipped:
@@ -346,12 +540,6 @@ if (__name__ == "__main__"):
 				for link in skipped:
 					print(f"\t {link}")
 
-		# Print duplicate minerals
-		if duplicates:
-			for duplicate in duplicates:
-				print(f"Found duplicates of \"{duplicate}\", with these properties :")
-				for d in duplicates[duplicate]:
-					print(f"\tDensity {d.density}, Hardness {d.hardness}, Elements {d.elements}")
 
 	if custom:
 		# Read minerals off of database if a new one isn't generated
