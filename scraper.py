@@ -212,21 +212,23 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 		s = BeautifulSoup(r.content, 'html.parser')
 
 		# Find and try to extract mineral name
+		# Skip on errors
 		try:
 			temp = s.select("h3 > b")[0].contents[0]
 
 			# Check that the name doesn't contain unwanted characters
 			# Skip if it fits an exclude pattern
-			m = re.search(patterns['name'], temp)
+			m = patterns['name'].search(temp)
 			temp = m.group(1).replace('(', '').replace(')', '').strip()
-			if re.search(patterns['exclude'], temp):
+			if patterns['exclude'].search(temp):
 				temp_skipped.append(link)
 			else:
 				mineral = Mineral(name = temp)
 		except IndexError:
+			# Follow redirects in case there is one
 			if ("redirect" in s.contents[0].text.lower()):
 				temp = s.contents[0].contents[1].contents[3].attrs['content']
-				m = re.search("(http.*)", temp)
+				m = patterns['link'].search(temp)
 				links.append(m.group(1))
 			else:
 				temp_skipped.append(link)
@@ -243,8 +245,29 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 			try:
 				mineral.density = float(temp)
 			except ValueError:
-				m = re.search(patterns['density'], temp)
+				m = patterns['density'].search(temp)
 				mineral.density = float(m.group(1))
+
+		# Check for hardness
+		if (temp := s.select("a[href*=\"../help/Hardness.shtml\"]")):
+			temp = list(temp[0].parents)
+			temp = list(temp[0].parent)
+			temp = temp[3].contents[0]
+			try:
+				mineral.hardness = float(temp)
+			except ValueError:
+				m = patterns['hardness'].search(temp)
+				if (not m.group(2)):
+					mineral.hardness = float(m.group(1))
+				else:
+					mineral.hardness = (float(m.group(1)) + float(m.group(2)))/2
+
+		if (temp := s.select("a[href*=\"../help/Composition.shtml\"]")):
+			temp = list(temp[0].parents)
+			temp = list(temp[0].parents)
+			temp = list(temp[0].next_siblings)
+
+
 
 		temp_minerals.append(mineral)
 		if (link == links[-1]):
@@ -280,37 +303,6 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 						finally:
 							continue
 
-				# Check for density
-				if ((not done['density']) and (titles['density'] in temp.lower())):
-					try:
-						temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
-						if (temphref.get_attribute('href') == (baselinks['density'])):
-							m = re.search(patterns['density'], temp)
-							mineral.density = float(m.group(1))
-							done['density'] = True
-					except NoSuchElementException:
-						pass
-					finally:
-						continue
-
-				# Check for hardness
-				if ((not done['hardness']) and (titles['hardness'] in temp.lower())):
-					try:
-						temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
-						if (temphref.get_attribute('href') == (baselinks['hardness'])):
-							m = re.search(patterns['hardness'], temp)
-							try:
-								temp = m.group(1)
-								mineral.hardness = float(temp)
-							except ValueError:
-								temp = list(map(float, temp.split(patterns['hardnessSeparator'])))
-								mineral.hardness = sum(temp)/len(temp)
-							finally:
-								done['hardness'] = True
-					except NoSuchElementException:
-						pass
-					finally:
-						continue
 			except NoSuchElementException:
 				break
 
@@ -452,12 +444,12 @@ if (__name__ == "__main__"):
 			cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
 
 		# RegEx patterns. Check with "https://regexr.com/"
-		patterns = {'name'			   : "General(.*)Information",			# Match group 1
-					'exclude'		   : "(IMA\S*)",						# Match group 1
-					'element'		   : "(\d+\.?\d*)\s*%\s*(\w+).*",		# Match group 1 for percentage, group 2 for element
-					'density'		   : "(\d+\.?\d*)\s*$",				# Match group 1
-					'hardness'		   : "(\d+\.?\d*-\d+\.?\d*|\d+\.?\d*)", # Match group 1
-					'hardnessSeparator': "-",	   # In case of a hardness range value, takes the average as the hardness
+		patterns = {'name'			   : re.compile("General(.*)Information"),	  # Match group 1
+					'link'			   : re.compile("(http.*)"),				  # Match group 1
+					'exclude'		   : re.compile("(IMA\S*)"),				  # Match group 1
+					'element'		   : re.compile("(\d+\.?\d*)\s*%\s*(\w+).*"), # Match group 1 for percentage, group 2 for element
+					'density'		   : re.compile("(\d+\.?\d*)\s*$"),			  # Match group 1
+					'hardness'		   : re.compile("(\d+\.?\d*)-?(\d+\.?\d*)?"), # Match group 1, test group 2 for averaging
 					'elementsSeparator': "______"} # Signals end of element values
 
 		# Lock object for threading
