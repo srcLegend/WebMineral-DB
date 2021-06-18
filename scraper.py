@@ -178,12 +178,13 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 		minerals = [*minerals, *tempMinerals]
 		skipped = [*skipped, *tempSkipped]
 
-def generateMineralTest(links, baselinks, patterns):
+def generate_minerals(links, baselinks, patterns):
 	"""Generates mineral objects. Seems to be thread-safe\\
 	   Needs list/dictionaries of links and dictionaries of search patterns"""
 
 	global locks
 	temp_minerals, temp_skipped = [], []
+	start_time1 = time()
 	for link in links:
 		start_time = time()
 
@@ -261,82 +262,60 @@ def generateMineralTest(links, baselinks, patterns):
 		with locks['print']:
 			print(f"Done downloading {mineral.name} in {time() - start_time:.2f} seconds")
 
+
 	# Lock variables to avoid race conditions, then append them
 	with locks['append']:
+		print(f"Done downloading minerals in {time() - start_time1:.2f} seconds")
 		global minerals
 		global skipped
 		minerals = [*minerals, *temp_minerals]
 		skipped = [*skipped, *temp_skipped]
 
-def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral, lastMineral = None):
+def generate_links(baselinks, patterns, settings, first_mineral = None, last_mineral = None):
 	"""Gathers links of all available minerals, then splits them into batches for threading\n
-	   Needs dictionaries of links, search patterns, titles, WebDriver settings,\\
-		along with values of CSS Selector of mineral list page, XPath of mineral data page,\\
-		first mineral XPath ID and, optionally, a last mineral XPath ID"""
-	if (settings['browser'] == "chrome"):
-		options = webdriver.ChromeOptions()
-		options.add_experimental_option('excludeSwitches', ['enable-logging'])
-		options.headless = settings['headless']
-		options.page_load_strategy = 'none'
-		services = webdriver.chrome.service.Service(executable_path = settings['chrome'])
-	elif (settings['browser'] == "edge"):
-		options = webdriver.EdgeOptions()
-		options.use_chromium = True
-		options.add_argument("log-level=3")
-		options.headless = settings['headless']
-		options.page_load_strategy = 'none'
-		services = webdriver.edge.service.Service(executable_path = settings['edge'])
-	elif (settings['browser'] == "firefox"):
-		options = webdriver.FirefoxOptions()
-		options.add_argument("log-level=3")
-		options.headless = settings['headless']
-		options.page_load_strategy = 'none'
-		services = webdriver.firefox.service.Service(executable_path = settings['firefox'])
+	   Needs dictionaries of links, search patterns and settings\\
+	   Can optionally specify first and/or last mineral name"""
 
-	try:
-		with (webdriver.Chrome(options = options, service = services) if (settings['browser'] == "chrome") else
-			  webdriver.Edge(options = options, service = services) if (settings['browser'] == "edge") else
-			  webdriver.Firefox(options = options, service = services) if (settings['browser'] == "firefox") else None) as driver:
+	r = requests.get(baselinks['data'] + 'index.html')
+	s = BeautifulSoup(r.content, 'html.parser')
 
-			driver.get(baselinks['data'])
-			wait = WebDriverWait(driver, settings['timeout'])
-			wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, cssSelector(firstMineral))))
-
-			links, tempSkipped = [], []
-			for i in count(firstMineral):
-				if ((lastMineral != None) and (i > lastMineral)): break
-				# Try to get mineral link, skip otherwise
-				try:
-					temp = driver.find_element(By.CSS_SELECTOR, cssSelector(i)).get_attribute('href')
-					if (".shtml" in temp):
-						links.append(temp)
-					else:
-						tempSkipped.append(temp)
-				except NoSuchElementException:
-					break
-				print(f"Acquiring links. Currently at link #{i - firstMineral}")
-
-	except AttributeError:
-		print(f"Chosen browser ({settings['browser']}) is not supported")
+	links, temp_skipped = [], []
+	temp = s.contents[2].contents[3].contents[3].contents
+	if first_mineral: found_first = False
+	del r, s
+	for t in [t for t in temp if (t != '\n')][3:-1]:
+		link = t.contents[2].contents[0].attrs['href']
+		if (not '.shtml' in link):
+			temp_skipped.append(link)
+			continue
+		if (first_mineral and not found_first):
+			if (link.split('.')[0] != first_mineral):
+				continue
+			else:
+				found_first = True
+		links.append(baselinks['data'] + link)
+		if (last_mineral and (link.split('.')[0] == last_mineral)):
+			break
+	del link, t, temp
 
 	# Append skipped links
 	global skipped
-	skipped = [*skipped, *tempSkipped]
+	skipped = [*skipped, *temp_skipped]
 
 	# Separate links into batches for threading, then start threads
-	maxLinks = len(links)//settings['threads']
-	remainingLinks = len(links)%settings['threads']
+	max_links = len(links)//settings['threads']
+	remaining_links = len(links)%settings['threads']
 	slicers, threads = [0, 0], []
 	for t in range(0, settings['threads']):
-		slicers = [slicers[1], (t + 1)*maxLinks]
-		if (remainingLinks > 0):
-			remainingLinks -= 1
+		slicers = [slicers[1], (t + 1)*max_links]
+		if (remaining_links > 0):
+			remaining_links -= 1
 			slicers[1] += 1
 		if ((t + 1) < settings['threads']):
-			threads.append(Thread(target = generateMineralTest,
+			threads.append(Thread(target = generate_minerals,
 								  args = (links[slicers[0]:slicers[1]], baselinks, patterns)))
 		else:
-			threads.append(Thread(target = generateMineralTest,
+			threads.append(Thread(target = generate_minerals,
 								  args = (links[slicers[0]:], baselinks, patterns)))
 		threads[-1].start()
 
@@ -370,7 +349,7 @@ if (__name__ == "__main__"):
 					'timeout' : 30,
 					'threads' : 8}
 
-		baselinks = {'data'	   : "http://webmineral.com/data/index.html",
+		baselinks = {'data'	   : "http://webmineral.com/data/",
 					 'elements': "../help/Composition.shtml",
 					 'density' : "../help/Density.shtml",
 					 'hardness': "../help/Hardness.shtml"}
@@ -402,8 +381,8 @@ if (__name__ == "__main__"):
 		locks = {'append': Lock(),
 				 'print' : Lock()}
 		minerals, skipped = [], []
-		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4, lastMineral = 1003)
-
+		generate_links(baselinks, patterns, settings, first_mineral = "Abelsonite", last_mineral = "Bytownite")
+		exit()
 		# Keep track of duplicates
 		duplicates = defaultdict(list)
 		for m in minerals:
