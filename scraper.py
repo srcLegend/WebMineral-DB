@@ -178,30 +178,9 @@ def generateMineral(links, baselinks, patterns, titles, settings, xpath):
 		minerals = [*minerals, *tempMinerals]
 		skipped = [*skipped, *tempSkipped]
 
-def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
-	"""Generates mineral objects. Seems to be thread-safe so far\n
-	   Needs list/dictionaries of links, dictionaries of search patterns, titles, WebDriver settings,\\
-		along with values of CSS Selector of mineral list page, XPath of mineral data page,\\
-		first mineral XPath ID and, optionally, a last mineral XPath ID"""
-	if (settings['browser'] == "chrome"):
-		options = webdriver.ChromeOptions()
-		options.add_experimental_option('excludeSwitches', ['enable-logging'])
-		options.headless = settings['headless']
-		options.page_load_strategy = 'eager'
-		services = webdriver.chrome.service.Service(executable_path = settings['chrome'])
-	elif (settings['browser'] == "edge"):
-		options = webdriver.EdgeOptions()
-		options.use_chromium = True
-		options.add_argument("log-level=3")
-		options.headless = settings['headless']
-		options.page_load_strategy = 'eager'
-		services = webdriver.edge.service.Service(executable_path = settings['edge'])
-	elif (settings['browser'] == "firefox"):
-		options = webdriver.FirefoxOptions()
-		options.add_argument("log-level=3")
-		options.headless = settings['headless']
-		options.page_load_strategy = 'eager'
-		services = webdriver.firefox.service.Service(executable_path = settings['firefox'])
+def generateMineralTest(links, baselinks, patterns):
+	"""Generates mineral objects. Seems to be thread-safe\\
+	   Needs list/dictionaries of links and dictionaries of search patterns"""
 
 	global locks
 	temp_minerals, temp_skipped = [], []
@@ -226,7 +205,7 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 				mineral = Mineral(name = temp)
 		except IndexError:
 			# Follow redirects in case there is one
-			if ("redirect" in s.contents[0].text.lower()):
+			if ('redirect' in s.contents[0].text.lower()):
 				temp = s.contents[0].contents[1].contents[3].attrs['content']
 				m = patterns['link'].search(temp)
 				links.append(m.group(1))
@@ -237,8 +216,23 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 			temp_skipped.append(link)
 			continue
 
+		# Check for elements
+		if (temp := s.select(f"a[href*=\"{baselinks['elements']}\"]")):
+			temp = list(list(list(temp[0].parents)[0].parents)[0].next_siblings)
+
+			for t in (t for t in temp if (t != '\n')):
+				t = ' '.join(t.text.split())
+				if ('Empirical Formula' in t):
+					break
+				if (m := patterns['element'].search(t)):
+					# Convert rare earth element oxides into pure elements
+					if (m.group(2) == 'RE'):
+						pass
+					mineral.elements[m.group(2)] = float(m.group(1))
+				continue
+
 		# Check for density
-		if (temp := s.select("a[href*=\"../help/Density.shtml\"]")):
+		if (temp := s.select(f"a[href*=\"{baselinks['density']}\"]")):
 			temp = list(temp[0].parents)
 			temp = list(temp[0].parent)
 			temp = temp[3].contents[0]
@@ -249,7 +243,7 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 				mineral.density = float(m.group(1))
 
 		# Check for hardness
-		if (temp := s.select("a[href*=\"../help/Hardness.shtml\"]")):
+		if (temp := s.select(f"a[href*=\"{baselinks['hardness']}\"]")):
 			temp = list(temp[0].parents)
 			temp = list(temp[0].parent)
 			temp = temp[3].contents[0]
@@ -262,56 +256,10 @@ def generateMineralTest(links, baselinks, patterns, titles, settings, xpath):
 				else:
 					mineral.hardness = (float(m.group(1)) + float(m.group(2)))/2
 
-		if (temp := s.select("a[href*=\"../help/Composition.shtml\"]")):
-			temp = list(temp[0].parents)
-			temp = list(temp[0].parents)
-			temp = list(temp[0].next_siblings)
-
-
-
 		temp_minerals.append(mineral)
-		if (link == links[-1]):
-			break
-		continue
-
-		# Start looking for and extract mineral data
-		for i in count(2):
-			try:
-				temp = driver.find_element(By.XPATH, xpath(i)).text
-				# Check for elements, and keep looking until we hit a separator
-				if not done['elements']:
-					if ((not found['elements']) and (titles['elements'] in temp.lower())):
-						try:
-							temphref = driver.find_element(By.XPATH, f"{xpath(i)}/td[1]/a")
-							if (temphref.get_attribute('href') == (baselinks['elements'])):
-								found['elements'] = True
-								continue
-						except NoSuchElementException:
-							continue
-					if found['elements']:
-						m = re.search(patterns['element'], temp)
-						try:
-							#	   [element,	percentage]
-							temp = [m.group(2), m.group(1)]
-							if (not temp[0] in mineral.elements):
-								mineral.elements[temp[0]] = float(temp[1])
-							else:
-								mineral.elements[temp[0]] += float(temp[1])
-						except AttributeError:
-							if (patterns['elementsSeparator'] in temp):
-								done['elements'] = True
-						finally:
-							continue
-
-			except NoSuchElementException:
-				break
-
-			if all(v == True for v in done.values()): break
-
-		tempMinerals.append(mineral)
 		# Lock printing for proper console output
 		with locks['print']:
-			print(f"Done downloading {mineral.name} in {time() - startTime:.2f} seconds")
+			print(f"Done downloading {mineral.name} in {time() - start_time:.2f} seconds")
 
 	# Lock variables to avoid race conditions, then append them
 	with locks['append']:
@@ -386,10 +334,10 @@ def generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, 
 			slicers[1] += 1
 		if ((t + 1) < settings['threads']):
 			threads.append(Thread(target = generateMineralTest,
-								  args = (links[slicers[0]:slicers[1]], baselinks, patterns, titles, settings, xpath)))
+								  args = (links[slicers[0]:slicers[1]], baselinks, patterns)))
 		else:
 			threads.append(Thread(target = generateMineralTest,
-								  args = (links[slicers[0]:], baselinks, patterns, titles, settings, xpath)))
+								  args = (links[slicers[0]:], baselinks, patterns)))
 		threads[-1].start()
 
 	# Wait for thread completion
@@ -420,14 +368,12 @@ if (__name__ == "__main__"):
 					'edge'	  : "bin/msedgedriver.exe", # Get from "https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/"
 					'firefox' : "bin/geckodriver.exe",	# Get from "https://github.com/mozilla/geckodriver/releases"
 					'timeout' : 30,
-					'threads' : 1}
+					'threads' : 8}
 
-		baselink = "http://webmineral.com"
-		baselinks = {'base'	   : baselink,
-					 'data'	   : baselink + "/data/index.html",
-					 'elements': baselink + "/help/Composition.shtml",
-					 'density' : baselink + "/help/Density.shtml",
-					 'hardness': baselink + "/help/Hardness.shtml"}
+		baselinks = {'data'	   : "http://webmineral.com/data/index.html",
+					 'elements': "../help/Composition.shtml",
+					 'density' : "../help/Density.shtml",
+					 'hardness': "../help/Hardness.shtml"}
 
 		titles = {'elements': "composition",
 				  'density' : "density",
@@ -444,20 +390,20 @@ if (__name__ == "__main__"):
 			cssSelector = lambda i: f"body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child({i}) > td:nth-child(2) > a:nth-child(1)]"
 
 		# RegEx patterns. Check with "https://regexr.com/"
-		patterns = {'name'			   : re.compile("General(.*)Information"),	  # Match group 1
-					'link'			   : re.compile("(http.*)"),				  # Match group 1
-					'exclude'		   : re.compile("(IMA\S*)"),				  # Match group 1
-					'element'		   : re.compile("(\d+\.?\d*)\s*%\s*(\w+).*"), # Match group 1 for percentage, group 2 for element
-					'density'		   : re.compile("(\d+\.?\d*)\s*$"),			  # Match group 1
-					'hardness'		   : re.compile("(\d+\.?\d*)-?(\d+\.?\d*)?"), # Match group 1, test group 2 for averaging
-					'elementsSeparator': "______"} # Signals end of element values
+		patterns = {'name'			   : re.compile("General(.*)Information"),		  # Match group 1
+					'link'			   : re.compile("(http.*)"),					  # Match group 1
+					'exclude'		   : re.compile("(IMA\S*)"),					  # Match group 1
+					'element'		   : re.compile("^\D+(\d+\.?\d*)\s*%\s*(\w+).*"), # Match group 1 for percentage, group 2 for element
+					'density'		   : re.compile("(\d+\.?\d*)\s*$"),				  # Match group 1
+					'hardness'		   : re.compile("(\d+\.?\d*)-?(\d+\.?\d*)?")}	  # Match group 1, test group 2 for averaging
+
 
 		# Lock object for threading
 		locks = {'append': Lock(),
 				 'print' : Lock()}
 		minerals, skipped = [], []
-		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4, lastMineral = 14)
-		exit()
+		generateMinerals(baselinks, patterns, titles, settings, xpath, cssSelector, firstMineral = 4, lastMineral = 1003)
+
 		# Keep track of duplicates
 		duplicates = defaultdict(list)
 		for m in minerals:
