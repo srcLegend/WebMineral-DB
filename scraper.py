@@ -38,87 +38,90 @@ def generate_minerals(links, baselinks, patterns, queue, lock):
 	   Needs list/dictionaries of links and dictionaries of search patterns,\\
 		along with a queue and a lock object"""
 
-	minerals, skipped = [], []
-	for link in links:
-		start_timer = time()
+	try: # to catch unhandled errors
+		minerals, skipped = [], []
+		for link in links:
+			start_timer = time()
 
-		r = requests.get(link)
-		s = BeautifulSoup(r.content, 'html.parser')
+			r = requests.get(link)
+			s = BeautifulSoup(r.content, 'html.parser')
 
-		try: # to extract mineral name
-			content = s.select('h3 > b')[0].contents[0]
-			m = patterns['name'].search(content)
-			name = m.group(1).replace('(', '').replace(')', '').strip()
-			if patterns['exclude'].search(name):
-				skipped.append(link)
-				continue
-			mineral = Mineral(name = name)
-		except IndexError: # Couldn't find given CSS Selectors
-			try: # to follow redirects in case it is one, skip otherwise
-				if ('redirect' in s.contents[0].text.lower()):
-					content = s.contents[0].contents[1].contents[3].attrs['content']
-					m = patterns['link'].search(content)
-					links.append(m.group(1))
-				else:
+			try: # to extract mineral name
+				content = s.select('h3 > b')[0].contents[0]
+				m = patterns['name'].search(content)
+				name = m.group(1).replace('(', '').replace(')', '').strip()
+				if patterns['exclude'].search(name):
 					skipped.append(link)
-			except AttributeError: # Link broken
-				skipped.append(link)
-			finally:
-				continue
-		except AttributeError: # Name pattern did not fit
-			skipped.append(link)
-			continue
-
-		# Check for elements
-		if (elements_tag := s.select(f"a[href*=\"{baselinks['elements']}\"]")):
-			lines = list(list(list(elements_tag[0].parents)[0].parents)[0].next_siblings)
-			# Look for elements in non-empty lines
-			for line in (line for line in lines if (line != '\n')):
-				line = ' '.join(line.text.split())
-				if (patterns['elements_done'] in line):
-					break
-				elif (m := patterns['element'].search(line)):
-					element, percentage = m.group(2), m.group(1)
-					# Convert rare earth element oxides into pure elements
-					if (element == 'RE'):
-						# TODO
-						pass
-					# If element is already present, sum percentages
-					if (element in mineral.elements):
-						mineral.elements[element] += float(percentage)
+					continue
+				mineral = Mineral(name = name)
+			except IndexError: # Couldn't find given CSS Selectors
+				try: # to follow redirects in case it is one, skip otherwise
+					if ('redirect' in s.contents[0].text.lower()):
+						content = s.contents[0].contents[1].contents[3].attrs['content']
+						m = patterns['link'].search(content)
+						links.append(m.group(1))
 					else:
-						mineral.elements[element] = float(percentage)
+						skipped.append(link)
+				except AttributeError: # Link broken
+					skipped.append(link)
+				finally:
+					continue
+			except AttributeError: # Name pattern did not fit
+				skipped.append(link)
+				continue
 
-		# Check for density
-		if (density_tag := s.select(f"a[href*=\"{baselinks['density']}\"]")):
-			density = list(list(density_tag[0].parents)[0].parent)[3].contents[0]
-			try: # to store density as a float
-				mineral.density = float(density)
-			except ValueError: # Extract float value if direct conversion failed
-				m = patterns['density'].search(density)
-				mineral.density = float(m.group(1))
+			# Check for elements
+			if (elements_tag := s.select(f"a[href*=\"{baselinks['elements']}\"]")):
+				lines = list(list(list(elements_tag[0].parents)[0].parents)[0].next_siblings)
+				# Look for elements in non-empty lines
+				for line in (line for line in lines if (line != '\n')):
+					line = ' '.join(line.text.split())
+					if (patterns['elements_done'] in line):
+						break
+					elif (m := patterns['element'].search(line)):
+						element, percentage = m.group(2), m.group(1)
+						# Convert rare earth element oxides into pure elements
+						if (element == 'RE'):
+							# TODO
+							pass
+						# If element is already present, sum percentages
+						if (element in mineral.elements):
+							mineral.elements[element] += float(percentage)
+						else:
+							mineral.elements[element] = float(percentage)
 
-		# Check for hardness
-		if (hardness_tag := s.select(f"a[href*=\"{baselinks['hardness']}\"]")):
-			hardness = list(list(hardness_tag[0].parents)[0].parent)[3].contents[0]
-			try: # to store hardness as a float
-				mineral.hardness = float(hardness)
-			except ValueError: # Extract float value(s) if direct conversion failed
-				m = patterns['hardness'].search(hardness)
-				# If single value, take it as hardness, otherwise average the range
-				if (not m.group(2)):
-					mineral.hardness = float(m.group(1))
-				else:
-					mineral.hardness = (float(m.group(1)) + float(m.group(2)))/2
+			# Check for density
+			if (density_tag := s.select(f"a[href*=\"{baselinks['density']}\"]")):
+				density = list(list(density_tag[0].parents)[0].parent)[3].contents[0]
+				try: # to store density as a float
+					mineral.density = float(density)
+				except ValueError: # Extract float value if direct conversion failed
+					m = patterns['density'].search(density)
+					mineral.density = float(m.group(1))
 
-		minerals.append(mineral)
-		end_timer = time()
-		# Lock printing for proper console output
-		with lock:
-			print(f"Done downloading {mineral.name} in {end_timer - start_timer:.2f} seconds")
+			# Check for hardness
+			if (hardness_tag := s.select(f"a[href*=\"{baselinks['hardness']}\"]")):
+				hardness = list(list(hardness_tag[0].parents)[0].parent)[3].contents[0]
+				try: # to store hardness as a float
+					mineral.hardness = float(hardness)
+				except ValueError: # Extract float value(s) if direct conversion failed
+					m = patterns['hardness'].search(hardness)
+					# If single value, take it as hardness, otherwise average the range
+					if (not m.group(2)):
+						mineral.hardness = float(m.group(1))
+					else:
+						mineral.hardness = (float(m.group(1)) + float(m.group(2)))/2
 
-	# Put gathered data in queue to be taken by the main thread
-	queue.put((minerals, skipped))
+			minerals.append(mineral)
+			end_timer = time()
+			# Lock printing for proper console output
+			with lock:
+				print(f"Done downloading {mineral.name} in {end_timer - start_timer:.2f} seconds")
+
+		# Put gathered data in queue to be taken by the main thread
+		queue.put((minerals, skipped))
+	except Exception as e: # Put unhandled errors in queue
+		queue.put(e)
 
 def generate_links(baselinks, datafiles, queue, lock):
 	"""Gathers links of all available minerals, then writes them into files\\
@@ -213,14 +216,21 @@ def get_minerals(baselinks, datafiles, patterns, settings):
 			if new_skipped:
 				skipped.extend(new_skipped)
 		else:
+			for p in processes:
+				p.terminate()
 			raise l_queue
 
 	# Wait for process completion
 	minerals = []
 	for _ in processes:
 		m_queue = mineral_queue.get()
-		minerals.extend(m_queue[0])
-		skipped.extend(m_queue[1])
+		if (type(m_queue) == tuple):
+			minerals.extend(m_queue[0])
+			skipped.extend(m_queue[1])
+		else:
+			for p in processes:
+				p.terminate()
+			raise m_queue
 
 	for p in processes:
 		p.join()
@@ -246,7 +256,7 @@ if (__name__ == '__main__'):
 	generate_headers(headers, datafiles['periodic_table'])
 
 	if generate:
-		settings = {'timeout' : 30, 'threads' : 8}
+		settings = {'timeout' : 30, 'threads' : 4}
 		baselinks = {'data'	   : "http://webmineral.com/data/",
 					 'elements': "../help/Composition.shtml",
 					 'density' : "../help/Density.shtml",
@@ -265,6 +275,7 @@ if (__name__ == '__main__'):
 
 		# Removes duplicates and returns a new sorted list
 		minerals = list(set(minerals))
+		skipped = list(set(skipped))
 		minerals.sort(key = operator.attrgetter('name'))
 		skipped.sort()
 
