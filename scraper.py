@@ -170,7 +170,7 @@ def get_minerals(baselinks, datafiles, patterns, settings):
 			link_process = Process(target = generate_links, args = (baselinks, datafiles, link_queue, lock))
 			link_process.start()
 			compare_links = True
-	except FileNotFoundError: # Files do not exist yet
+	except FileNotFoundError:
 		# Generate and wait for links to be ready before continuing
 		link_process = Process(target = generate_links, args = (baselinks, datafiles, link_queue, lock))
 		link_process.start()
@@ -233,19 +233,20 @@ if (__name__ == '__main__'):
 	# Whether to overwrite certain minerals with custom values or not
 	custom = True
 
-	datafiles = {'minerals_database': "data/MineralsDatabase.csv",
-				 'current_minerals'	: "data/CurrentMinerals.csv",
-				 'custom_minerals'	: "data/CustomMinerals.csv",
-				 'periodic_table'	: "data/PeriodicTable.csv",
-				 'mineral_links'	: "data/MineralLinks.txt",
-				 'skipped_links'	: "data/SkippedLinks.txt"}
+	datafiles = {'minerals_database'  : "data/MineralsDatabase.csv",
+				 'current_minerals'	  : "data/CurrentMinerals.csv",
+				 'custom_minerals'	  : "data/CustomMinerals.csv",
+				 'periodic_table'	  : "data/PeriodicTable.csv",
+				 'rare_earth_minerals': "data/RareEarthMinerals.txt",
+				 'mineral_links'	  : "data/MineralLinks.txt",
+				 'skipped_links'	  : "data/SkippedLinks.txt"}
 
 	# CSV initial headers
 	headers = ["Mineral", "Density", "Hardness"]
 	generate_headers(headers, datafiles['periodic_table'])
 
 	if generate:
-		settings = {'timeout' : 30, 'threads' : 12}
+		settings = {'timeout' : 30, 'threads' : 8}
 		baselinks = {'data'	   : "http://webmineral.com/data/",
 					 'elements': "../help/Composition.shtml",
 					 'density' : "../help/Density.shtml",
@@ -291,14 +292,11 @@ if (__name__ == '__main__'):
 				for link in skipped:
 					file.write(link + '\n')
 
-		# Print minerals containing rare earth elements
+		# Write rare earth minerals
 		if rare_earth_minerals:
-			if (len(rare_earth_minerals) == 1):
-				print(f"\"{rare_earth_minerals[0].name}\" contains rare earth elements")
-			else:
-				print("These minerals contain rare earth elements :")
+			with open(datafiles['rare_earth_minerals'], 'w') as file:
 				for mineral in rare_earth_minerals:
-					print(f"\t {mineral.name}")
+					file.write(mineral.name + '\n')
 
 	if custom:
 		# Read minerals off of database if a new one isn't generated
